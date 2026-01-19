@@ -1,0 +1,54 @@
+name: Deploy to Bunny.net
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Deploy to Bunny.net Edge Storage
+        env:
+          BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
+          BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+          BUNNY_STORAGE_HOSTNAME: ${{ secrets.BUNNY_STORAGE_HOSTNAME }}
+        run: |
+          # Install lftp for FTP upload
+          sudo apt-get update
+          sudo apt-get install -y lftp
+          
+          # Upload files to Edge Storage via FTP
+          lftp -e "
+            set ssl:verify-certificate no;
+            open -u $BUNNY_STORAGE_ZONE,$BUNNY_STORAGE_PASSWORD ftp://$BUNNY_STORAGE_HOSTNAME;
+            mirror -R --delete --verbose out /;
+            quit
+          "
+
+      - name: Purge CDN Cache
+        env:
+          BUNNY_API_KEY: ${{ secrets.BUNNY_API_KEY }}
+          BUNNY_PULL_ZONE_ID: ${{ secrets.BUNNY_PULL_ZONE_ID }}
+        run: |
+          curl -X POST "https://api.bunny.net/pullzone/$BUNNY_PULL_ZONE_ID/purgeCache" \
+            -H "AccessKey: $BUNNY_API_KEY"
