@@ -29,21 +29,36 @@ jobs:
 
       - name: Deploy to Bunny.net Edge Storage
         env:
-          BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
+          BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE_ID }}
           BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
-          BUNNY_STORAGE_HOSTNAME: ${{ secrets.BUNNY_STORAGE_HOSTNAME }}
+          BUNNY_STORAGE_HOSTNAME: storage.bunnycdn.com
         run: |
-          # Install lftp for FTP upload
-          sudo apt-get update
-          sudo apt-get install -y lftp
+          # Upload files to Bunny.net Storage API using HTTP PUT
+          cd out
           
-          # Upload files to Edge Storage via FTP
-          lftp -e "
-            set ssl:verify-certificate no;
-            open -u $BUNNY_STORAGE_ZONE,$BUNNY_STORAGE_PASSWORD ftp://$BUNNY_STORAGE_HOSTNAME;
-            mirror -R --delete --verbose out /;
-            quit
-          "
+          # Function to upload a file
+          upload_file() {
+            local file="$1"
+            local remote_path="${file#./}"
+            
+            echo "Uploading: $remote_path"
+            
+            curl -X PUT \
+              "https://$BUNNY_STORAGE_HOSTNAME/$BUNNY_STORAGE_ZONE/$remote_path" \
+              -H "AccessKey: $BUNNY_STORAGE_PASSWORD" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$file" \
+              --fail \
+              --silent \
+              --show-error
+          }
+          
+          # Upload all files recursively
+          find . -type f | while read file; do
+            upload_file "$file"
+          done
+          
+          echo "✅ All files uploaded to Bunny.net Edge Storage"
 
       - name: Purge CDN Cache
         env:
